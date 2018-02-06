@@ -2,6 +2,7 @@ from threading import Thread
 import numpy as np
 import cv2
 import time
+import math
 from matplotlib import pyplot as plt
 
 class WebcamVideoStream:
@@ -66,7 +67,7 @@ def haveSameCoordinates(rect1, rect2):
 def isCorrectRatio(rect):
     if (rect[1][0] > 6 and rect[1][1] > 6):
         correct_ratio = 15.3 / 2.0
-        err = 1
+        err = 1.5
         width = rect[1][0]
         height = rect[1][1]
         ratio = round(height / width, 2)
@@ -110,7 +111,6 @@ while(1):
     rounded = []
     pairs = []
 
-
     # ---- FILTER OUT REPEAT CONTOURS ----
     for rect in rectborders:
         n = -1
@@ -120,18 +120,16 @@ while(1):
         count = 0
         for r2 in rounded:
             if rnd_rect == r2:
-                count += 1
-        if count > 1:
-            rectborders.remove(rect)
+                rectborders.remove(rect)
+                rounded.remove(rnd_rect)
 
     # ---- GET PAIRS OF SIMILAR CONTOURS THAT MAY BE TARGET ----
     for r in rectborders:
         # sim_* resembles range of difference between rectangles that is deemed "acceptable" for them to be a pair
         sim_ratio = 0.5
         sim_angle = 2
-        sim_area = 0.1
+        sim_area = 0.2
         if isCorrectRatio(r):
-            print(r)
             ratio_r = round(r[1][1] / r[1][0], 2)
             ratio_r = getRegularRatio(ratio_r)
             angle_r = round(r[2], 1)
@@ -151,13 +149,37 @@ while(1):
 
     print(pairs)
 
+
+
+    """
+    This may help in understanding some of the code:
+     _____
+    |     |
+    |     |  * = center, (x, y)
+    |     |  _ and | = side of minimum area rect of contour
+    |     |  
+    |     |  h / w = approx 15.3 / 2.0 (dimension of single target rectangle)
+  h |  *  |
+    |     |  
+    |     |
+    |     |
+    |     |
+    |_____|
+       w
+    cv2.minAreaRect(contour) = ((x, y), (w, h), angle)
+    
+    Reason for inverting values at times is due to the fact that width and height may not correlate from one rectangle to another (width and height may be switched)
+    
+    """
+
+
     # ---- DISPLAY VISUALIZATIONS FOR CONTOURS ----
     min_x = 1920
     max_x = 0
     min_y = 1080
     max_y = 0
+    distances = []
     for pair in pairs:
-        i = 0
         for rect in pair:
             color = (255, 0, 255)
 
@@ -178,38 +200,34 @@ while(1):
                 height = width
                 width = tmp
 
-
-            if x + width/2 < min_x:
+            if x - width/2 < min_x:
                 min_x = int(x - width/2)
-            if x - width/2 > max_x:
+            if x + width/2 > max_x:
                 max_x = int(x + width/2)
-            if y + height/2 < min_y:
+            if y - height/2 < min_y:
                 min_y = int(y - height/2)
-            if y - height/2 > max_y:
+            if y + height/2 > max_y:
                 max_y = int(y + height/2)
 
-            spacing = i * 200
-            offset = -75
-            cv2.putText(frame, str(ratio), (int(x + spacing + offset), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
-                        (0, 255, 255), 1)
-            cv2.putText(frame, "w: " + str(round(width, 0)), (int(x + spacing + offset), int(y + 20)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-            cv2.putText(frame, "h: " + str(round(height, 0)), (int(x + spacing + offset), int(y + 40)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-            cv2.putText(frame, "angle: " + str(round(angle, 0)) + "deg", (int(x + spacing + offset), int(y + 60)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+            black = (0, 0, 0)
 
-            if i == 1:
-                inches = distance_to_camera(height)
-                cv2.putText(frame, "%.2fft" % (inches / 12), (frame.shape[1] - 200, frame.shape[0] - 100),
-                            cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 0, 0), 3)
+            cv2.putText(frame, str(ratio), (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+            cv2.putText(frame, "w: " + str(round(width, 0)), (int(x), int(y + 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
+                        black, 1)
+            cv2.putText(frame, "h: " + str(round(height, 0)), (int(x), int(y + 40)), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
+                        black, 1)
+            cv2.putText(frame, "angle: " + str(round(angle, 0)) + "deg", (int(x), int(y + 60)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, black, 1)
+
+            inches = distance_to_camera(height)
+            distances.append(inches)
+
 
             cv2.circle(frame, (int(round(x, 0)), int(round(y, 0))), 2, (0, 0, 0), 1)
             box = cv2.boxPoints(rect)
             box = np.array(box).reshape((-1, 1, 2)).astype(np.int32)
 
             cv2.drawContours(frame, [box], -1, color, 2)
-            i += 1
 
 
         track_window = (min_x, min_y, max_x - min_x, max_y - min_y)
@@ -251,6 +269,17 @@ while(1):
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
         """
+    # ---- FINDS AVERAGE DISTANCE OF TARGET AND PERSPECTIVE ANGLE ----
+    if len(distances) == 2:
+
+        diff = distances[0] - distances[1] # this gives us the opposite for the triangle
+
+        if abs(diff) < 6: # 6 is the length in inches of the target, this gives u the hypotenuse
+            perspective_angle = math.degrees(math.asin(diff / 6))
+            print("perspective angle: " + str(perspective_angle))
+        cv2.putText(frame, "%.2fft" % ((distances[0] + distances[1]) / 24),
+                    (frame.shape[1] - 200, frame.shape[0] - 100), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 0, 0), 3)
+
     cv2.imshow("image", frame)  # cv2.resize(image, (960, 540))
     k = cv2.waitKey(1) & 0xFF
     if k == ord('q'):
