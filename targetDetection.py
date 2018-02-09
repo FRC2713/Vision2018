@@ -8,56 +8,19 @@ import math
 from networktables import NetworkTables
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import time
-
-
-
+from stream import WebcamVideoStream
 
 NetworkTables.initialize(server="roboRIO-2713-frc.local")
 vt = NetworkTables.getTable("VisionProcessing")
 vt.putNumber("angle", 0)
 vt.putNumber("distance", 1)
 
-class WebcamVideoStream:
-    def __init__(self):
-        # initialize the video camera stream and read the first frame
-        # from the stream
-        self.stream = cv2.VideoCapture(1)
-        #self.stream.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
-        #self.stream.set(cv2.CAP_PROP_EXPOSURE, 7.0)
-        self.stream.set(cv2.CAP_PROP_SATURATION, 100.0)
-        #cv2.CAP_PROP_EXPOSURE
-        (self.grabbed, self.frame) = self.stream.read()
-
-        # initialize the variable used to indicate if the thread should
-        # be stopped
-        self.stopped = False
-
-    def start(self):
-        # start the thread to read frames from the video stream
-        Thread(target=self.update, args=()).start()
-        return self
-
-    def update(self):
-        # keep looping infinitely until the thread is stopped
-        while True:
-            # if the thread indicator variable is set, stop the thread
-            if self.stopped:
-                return
-
-            # otherwise, read the next frame from the stream
-            (self.grabbed, self.frame) = self.stream.read()
-
-    def read(self):
-        # return the frame most recently read
-        return self.frame
-
-    def stop(self):
-        # indicate that the thread should be stopped
-        self.stopped = True
-
 vs = WebcamVideoStream().start()
-#frame = vs.read()
 final = vs.read()
+
+port = 8087
+
+
 class CamHandler(BaseHTTPRequestHandler):
     def do_GET(self):
 
@@ -67,11 +30,10 @@ class CamHandler(BaseHTTPRequestHandler):
             self.end_headers()
             while True:
                 try:
-                    global final
-
+                    global final, port
                     img = final
-                    #rc, img = capture.read()
-                    #if not rc:
+                    # rc, img = capture.read()
+                    # if not rc:
                     #    continue
                     imgRGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                     jpg = Image.fromarray(imgRGB)
@@ -81,10 +43,10 @@ class CamHandler(BaseHTTPRequestHandler):
                     self.send_header('Content-type', 'image/jpeg')
                     self.send_header('Content-length', str(tmpFile.getbuffer().nbytes))
                     self.end_headers()
-                    #print(jpg)
+                    # print(jpg)
                     self.wfile.write(tmpFile.getvalue())
 
-                    #jpg.save(self.wfile, 'JPEG')
+                    # jpg.save(self.wfile, 'JPEG')
                     time.sleep(0.05)
                 except KeyboardInterrupt:
                     break
@@ -94,23 +56,22 @@ class CamHandler(BaseHTTPRequestHandler):
             self.send_header('Content-type', 'text/html')
             self.end_headers()
             self.wfile.write('<html><head></head><body>'.encode())
-            self.wfile.write('<img src="http://127.0.0.1:8087/cam.mjpg"/>'.encode())
+            self.wfile.write(('<img src="http://127.0.0.1:' + str(port) + '/cam.mjpg"/>').encode())
             self.wfile.write('</body></html>'.encode())
             return
 
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     """Handle requests in a separate thread."""
-# define range of blue color in HSV
 
-port = 8087
 def serve():
     server = ThreadedHTTPServer(("", port), CamHandler)
     server.serve_forever()
+
+
 server_thread = Thread(target=serve, args=())
 server_thread.start()
 
-#server.serve_forever()
 print("mjpeg server started on port " + str(port))
 
 r = 0
@@ -119,17 +80,9 @@ b = 241
 rh = 203
 gh = 51
 bh = 255
-"""
-r = 0
-g = 0
-b = 0
-rh = 255
-gh = 255
-bh = 255
-"""
+
 lower_c = np.array([r, g, b])
 upper_c = np.array([rh, gh, bh])
-
 
 
 def haveSameCoordinates(rect1, rect2):
@@ -160,15 +113,18 @@ def getRegularRatio(ratio):
         r = 1 / r
     return r
 
+
 KNOWN_DISTANCE = 77
 KNOWN_HEIGHT = 183
 focalHeight = 51.333336
+
 
 def distance_to_camera(pixHeight):
     global KNOWN_HEIGHT, focalHeight
     return (KNOWN_HEIGHT * focalHeight) / pixHeight
 
-while(1):
+
+while (1):
     frame = vs.read()
     # ---- FILTER OUT THINGS WE DON'T WANT ----
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
@@ -188,7 +144,8 @@ while(1):
     for rect in rectborders:
         n = -1
         rnd_rect = (
-        (round(rect[0][0], n), round(rect[0][1], n)), (round(rect[1][0], n), round(rect[1][1], n)), round(rect[2], n))
+            (round(rect[0][0], n), round(rect[0][1], n)), (round(rect[1][0], n), round(rect[1][1], n)),
+            round(rect[2], n))
         rounded.append(rnd_rect)
         count = 0
         for r2 in rounded:
@@ -220,7 +177,7 @@ while(1):
                             if (abs(area_r / area_r2 - 1) < sim_area):
                                 pairs.append([r, r2])
 
-    #print(pairs)
+    # print(pairs)
 
     """
     This may help in understanding some of the code:
@@ -243,7 +200,6 @@ while(1):
     
     """
 
-
     # ---- DISPLAY VISUALIZATIONS FOR CONTOURS ----
     min_x = 1920
     max_x = 0
@@ -260,7 +216,6 @@ while(1):
             x = rect[0][0]
             y = rect[0][1]
 
-
             angle = rect[2]
 
             ratio = round(height / width, 3)
@@ -270,14 +225,14 @@ while(1):
                 height = width
                 width = tmp
 
-            if x - width/2 < min_x:
-                min_x = int(x - width/2)
-            if x + width/2 > max_x:
-                max_x = int(x + width/2)
-            if y - height/2 < min_y:
-                min_y = int(y - height/2)
-            if y + height/2 > max_y:
-                max_y = int(y + height/2)
+            if x - width / 2 < min_x:
+                min_x = int(x - width / 2)
+            if x + width / 2 > max_x:
+                max_x = int(x + width / 2)
+            if y - height / 2 < min_y:
+                min_y = int(y - height / 2)
+            if y + height / 2 > max_y:
+                max_y = int(y + height / 2)
 
             black = (0, 0, 0)
 
@@ -292,16 +247,14 @@ while(1):
             inches = distance_to_camera(height)
             distances.append(inches)
 
-
             cv2.circle(frame, (int(round(x, 0)), int(round(y, 0))), 2, (0, 0, 0), 1)
             box = cv2.boxPoints(rect)
             box = np.array(box).reshape((-1, 1, 2)).astype(np.int32)
 
             cv2.drawContours(frame, [box], -1, color, 2)
 
-
         track_window = (min_x, min_y, max_x - min_x, max_y - min_y)
-        #Tracking stuff
+        # Tracking stuff
         """
         print(track_window)
         roi = frame[min_y:max_y, min_x:max_x]
@@ -342,9 +295,9 @@ while(1):
     # ---- FINDS AVERAGE DISTANCE OF TARGET AND PERSPECTIVE ANGLE ----
     if len(distances) == 2:
 
-        diff = distances[0] - distances[1] # this gives us the opposite for the triangle
+        diff = distances[0] - distances[1]  # this gives us the opposite for the triangle
         distance = round((distances[0] + distances[1]) / 24, 1)
-        if abs(diff) < 6: # 6 is the length in inches of the target, this gives u the hypotenuse
+        if abs(diff) < 6:  # 6 is the length in inches of the target, this gives u the hypotenuse
             perspective_angle = round(math.degrees(math.asin(diff / 6)), 3)
 
             vt.putNumber("angle", perspective_angle)
