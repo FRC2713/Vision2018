@@ -1,9 +1,21 @@
+from socketserver import ThreadingMixIn
 from threading import Thread
+from io import BytesIO
+from PIL import Image
 import numpy as np
 import cv2
-import time
 import math
-from matplotlib import pyplot as plt
+from networktables import NetworkTables
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import time
+
+
+
+
+NetworkTables.initialize(server="roboRIO-2713-frc.local")
+vt = NetworkTables.getTable("VisionProcessing")
+vt.putNumber("angle", 0)
+vt.putNumber("distance", 1)
 
 class WebcamVideoStream:
     def __init__(self):
@@ -12,6 +24,7 @@ class WebcamVideoStream:
         self.stream = cv2.VideoCapture(1)
         #self.stream.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
         #self.stream.set(cv2.CAP_PROP_EXPOSURE, 7.0)
+        self.stream.set(cv2.CAP_PROP_SATURATION, 100.0)
         #cv2.CAP_PROP_EXPOSURE
         (self.grabbed, self.frame) = self.stream.read()
 
@@ -44,14 +57,76 @@ class WebcamVideoStream:
 
 vs = WebcamVideoStream().start()
 #frame = vs.read()
+final = vs.read()
+class CamHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
 
+        if self.path.endswith('.mjpg'):
+            self.send_response(200)
+            self.send_header('Content-type', 'multipart/x-mixed-replace; boundary=--jpgboundary')
+            self.end_headers()
+            while True:
+                try:
+                    global final
+
+                    img = final
+                    #rc, img = capture.read()
+                    #if not rc:
+                    #    continue
+                    imgRGB = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                    jpg = Image.fromarray(imgRGB)
+                    tmpFile = BytesIO()
+                    jpg.save(tmpFile, 'JPEG')
+                    self.wfile.write("--jpgboundary".encode())
+                    self.send_header('Content-type', 'image/jpeg')
+                    self.send_header('Content-length', str(tmpFile.getbuffer().nbytes))
+                    self.end_headers()
+                    #print(jpg)
+                    self.wfile.write(tmpFile.getvalue())
+
+                    #jpg.save(self.wfile, 'JPEG')
+                    time.sleep(0.05)
+                except KeyboardInterrupt:
+                    break
+            return
+        if self.path.endswith('.html'):
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write('<html><head></head><body>'.encode())
+            self.wfile.write('<img src="http://127.0.0.1:8087/cam.mjpg"/>'.encode())
+            self.wfile.write('</body></html>'.encode())
+            return
+
+
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    """Handle requests in a separate thread."""
 # define range of blue color in HSV
+
+port = 8087
+def serve():
+    server = ThreadedHTTPServer(("", port), CamHandler)
+    server.serve_forever()
+server_thread = Thread(target=serve, args=())
+server_thread.start()
+
+#server.serve_forever()
+print("mjpeg server started on port " + str(port))
+
 r = 0
 g = 0
 b = 241
 rh = 203
 gh = 51
 bh = 255
+"""
+r = 0
+g = 0
+b = 0
+rh = 255
+gh = 255
+bh = 255
+"""
 lower_c = np.array([r, g, b])
 upper_c = np.array([rh, gh, bh])
 
@@ -85,11 +160,9 @@ def getRegularRatio(ratio):
         r = 1 / r
     return r
 
-
 KNOWN_DISTANCE = 77
 KNOWN_HEIGHT = 183
 focalHeight = 51.333336
-
 
 def distance_to_camera(pixHeight):
     global KNOWN_HEIGHT, focalHeight
@@ -147,9 +220,7 @@ while(1):
                             if (abs(area_r / area_r2 - 1) < sim_area):
                                 pairs.append([r, r2])
 
-    print(pairs)
-
-
+    #print(pairs)
 
     """
     This may help in understanding some of the code:
@@ -194,7 +265,6 @@ while(1):
 
             ratio = round(height / width, 3)
             if ratio != getRegularRatio(ratio):
-                print(ratio)
                 ratio = round(getRegularRatio(ratio), 3)
                 tmp = height
                 height = width
@@ -273,13 +343,18 @@ while(1):
     if len(distances) == 2:
 
         diff = distances[0] - distances[1] # this gives us the opposite for the triangle
-
+        distance = round((distances[0] + distances[1]) / 24, 1)
         if abs(diff) < 6: # 6 is the length in inches of the target, this gives u the hypotenuse
-            perspective_angle = math.degrees(math.asin(diff / 6))
-            print("perspective angle: " + str(perspective_angle))
-        cv2.putText(frame, "%.2fft" % ((distances[0] + distances[1]) / 24),
-                    (frame.shape[1] - 200, frame.shape[0] - 100), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 0, 0), 3)
+            perspective_angle = round(math.degrees(math.asin(diff / 6)), 3)
 
+            vt.putNumber("angle", perspective_angle)
+            vt.putNumber("distance", distance)
+
+            cv2.putText(frame, str(perspective_angle),
+                        (frame.shape[1] - 200, frame.shape[0]), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 0, 0), 3)
+        cv2.putText(frame, "%.2fft" % (distance),
+                    (frame.shape[1] - 200, frame.shape[0] - 100), cv2.FONT_HERSHEY_SIMPLEX, 2.0, (0, 0, 0), 3)
+    final = frame
     cv2.imshow("image", frame)  # cv2.resize(image, (960, 540))
     k = cv2.waitKey(1) & 0xFF
     if k == ord('q'):
