@@ -1,19 +1,13 @@
-from threading import Thread
 import cv2
+from threading import Thread
 
 class WebcamVideoStream:
     def __init__(self):
-        # initialize the video camera stream and read the first frame
-        # from the stream
-        self.stream = cv2.VideoCapture(0)
-        #self.stream.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
-        #self.stream.set(cv2.CAP_PROP_EXPOSURE, 7.0)
-        self.stream.set(cv2.CAP_PROP_SATURATION, 100.0)
-        #cv2.CAP_PROP_EXPOSURE
+        # initialize the video camera stream and read the first frame from the stream
+        self.stream = cv2.VideoCapture(1)  # 0 = built in camera, 1 = extra camera
         (self.grabbed, self.frame) = self.stream.read()
 
-        # initialize the variable used to indicate if the thread should
-        # be stopped
+        # initialize the variable used to indicate if the thread should be stopped
         self.stopped = False
 
     def start(self):
@@ -27,7 +21,6 @@ class WebcamVideoStream:
             # if the thread indicator variable is set, stop the thread
             if self.stopped:
                 return
-
             # otherwise, read the next frame from the stream
             (self.grabbed, self.frame) = self.stream.read()
 
