@@ -11,41 +11,6 @@ import time
 from stream import WebcamVideoStream
 import os
 
-NetworkTables.initialize(server="roboRIO-2713-frc.local")
-vt = NetworkTables.getTable("VisionProcessing")
-
-vt.putNumber("heartbeat", 0)
-def resetTable(vt):
-    vt.putNumber("angle", -1)
-    vt.putNumber("distance", -1)
-    vt.putNumber("x", -1)
-    vt.putNumber("y", -1)
-    vt.putNumber("ipp", -1)
-
-resetTable(vt)
-
-vs = WebcamVideoStream().start()
-final = vs.read()
-# vt.putNumber("screen_width", 1920)
-print(os.name)
-displayDebugWindow = (os.name == 'nt') or ("DISPLAY" in os.environ)
-port = 8087
-
-# Range of color
-r = 32
-g = 0
-b = 202
-
-rh = 119
-gh = 255
-bh = 255
-
-lower_c = np.array([r, g, b])
-upper_c = np.array([rh, gh, bh])
-
-KNOWN_DISTANCE = 77
-KNOWN_HEIGHT = 183
-focalHeight = 51.333336
 
 class CamHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -95,10 +60,12 @@ def serve():
     server = ThreadedHTTPServer(("", port), CamHandler)
     server.serve_forever()
 
-server_thread = Thread(target=serve, args=())
-server_thread.start()
-
-print("mjpeg server started on port " + str(port))
+def resetTable(vt):
+    vt.putNumber("angle", -1)
+    vt.putNumber("distance", -1)
+    vt.putNumber("x", -1)
+    vt.putNumber("y", -1)
+    vt.putNumber("ipp", -1)
 
 def haveSameCoordinates(rect1, rect2):
     if round(rect1[0][0], 0) == round(rect2[0][0], 0) and round(rect1[0][1], 0) == round(rect2[0][1], 0):
@@ -126,8 +93,11 @@ def getRegularRatio(ratio):
     return r
 
 def distance_to_camera(pixHeight):
-    global KNOWN_HEIGHT, focalHeight
-    return (KNOWN_HEIGHT * focalHeight) / pixHeight
+    # KNOWN_DISTANCE = 77
+    #KNOWN_HEIGHT = 183
+    #focalHeight = 51.333336
+    #return (KNOWN_HEIGHT * focalHeight) / pixHeight
+    return 9394 / pixHeight
 
 def width_to_pixel_width(width):
     return 8 / width
@@ -139,6 +109,36 @@ def drawBox(frame, rect, color=(0, 0, 255)):
 
 if __name__ == '__main__':
     start_t = time.time()
+
+    NetworkTables.initialize(server="roboRIO-2713-frc.local")
+    vt = NetworkTables.getTable("VisionProcessing")
+    vt.putNumber("heartbeat", 0)
+    resetTable(vt)
+
+    vs = WebcamVideoStream().start()
+    final = vs.read()
+    # vt.putNumber("screen_width", 1920)
+    print(os.name)
+    displayDebugWindow = (os.name == 'nt') or ("DISPLAY" in os.environ)
+    port = 8087
+
+    # Range of color
+    r = 32
+    g = 0
+    b = 202
+
+    rh = 119
+    gh = 255
+    bh = 255
+
+    lower_c = np.array([r, g, b])
+    upper_c = np.array([rh, gh, bh])
+
+
+    server_thread = Thread(target=serve, args=())
+    server_thread.start()
+
+    print("mjpeg server started on port " + str(port))
     while 1:
 
         frame = vs.read()
@@ -216,13 +216,13 @@ if __name__ == '__main__':
         |     |  _ and | = side of minimum area rect of contour
         |     |  
         |     |  h / w = approx 15.3 / 2.0 (dimension of single target rectangle)
-      h |  *  |
+        h  *  |
         |     |  
         |     |
         |     |
         |     |
-        |_____|
-           w
+        |__w__|
+           
         cv2.minAreaRect(contour) = ((x, y), (w, h), angle)
         
         Reason for inverting values at times is due to the fact that width and height may not correlate from one rectangle to another (width and height may be switched)
